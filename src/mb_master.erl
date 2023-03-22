@@ -83,10 +83,18 @@ init([]) ->
     case ns_node_disco:nodes_wanted() of
         [N] = P when N == node() ->
             ale:info(?USER_LOGGER, "I'm the only node, so I'm the master.", []),
+            %% @state_change
+            %% @before init
+            %% @after master
+            %% @reason Only node in cluster
             {ok, master, start_master(#state{last_heard=Now, peers=P})};
         Peers when is_list(Peers) ->
             %% We're a candidate
             ?log_debug("Starting as candidate. Peers: ~p", [Peers]),
+            %% @state_change
+            %% @before init
+            %% @after candidate
+            %% @reason Other nodes in cluster
             {ok, candidate, #state{last_heard = Now,
                                    %% Prevent new node from becoming master by
                                    %% accident, and wait for TIMEOUT amount of
@@ -234,6 +242,10 @@ candidate(info, peers_changed, StateData) ->
             ale:info(?USER_LOGGER,
                      "I'm now the only node, so I'm the master.",
                      []),
+            %% @state_change
+            %% @before candidate
+            %% @after master
+            %% @reason Only node remaining
             {next_state, master, start_master(S)};
         _ ->
             case can_be_master(S) of
@@ -241,6 +253,10 @@ candidate(info, peers_changed, StateData) ->
                     ale:info(?USER_LOGGER,
                              "Master has been removed from cluster. "
                              "I'm taking over as the master.", []),
+                    %% @state_change
+                    %% @before candidate
+                    %% @after master
+                    %% @reason Master removed from the cluster
                     {next_state, master, start_master(S)};
                 false ->
                     {keep_state, S}
@@ -269,6 +285,10 @@ candidate(info, {send_heartbeat, LastHBInterval},
             ale:info(?USER_LOGGER,
                      "Haven't heard from a higher priority node or a master, "
                      "so I'm taking over.", []),
+            %% @state_change
+            %% @before candidate
+            %% @after master
+            %% @reason Have not heard from higher priority node for 10s
             {next_state, master, start_master(StateData)};
         false ->
             keep_state_and_data
@@ -367,6 +387,10 @@ master(info, peers_changed, StateData) ->
         false ->
             ?log_info("Master has been demoted. Peers = ~p", [Peers]),
             NewState = shutdown_master_sup(S),
+            %% @state_change
+            %% @before master
+            %% @after candidate
+            %% @reason Master removed from cluster
             {next_state, candidate, NewState}
     end;
 master(info, {send_heartbeat, LastHBInterval}, StateData) ->
@@ -386,6 +410,10 @@ master(info, {heartbeat, NodeInfo, master, _H}, #state{peers=Peers} = State) ->
                     ?log_info("Surrendering mastership to ~p", [Node]),
                     NewState = shutdown_master_sup(State),
                     announce_leader(Node),
+                    %% @state_change
+                    %% @before master
+                    %% @after candidate
+                    %% @reason Surrendering mastership, newer node in cluster
                     {next_state, candidate,
                      update_high_priority_nodes(
                        {Node, Now},
